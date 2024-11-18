@@ -1,77 +1,82 @@
-import axios from 'axios';
-import TronWeb from 'tronweb';
+const axios = require('axios');
+const TronWeb = require('tronweb');
 
-// Define constants for wallets and contract
-const secureWalletPrivateKey = "44e5973471fe58fa3fb34cc1c412c0ddbe7d26a2a73174841aa176a15d076dcd"; // Secure wallet private key
-const compromisedWalletAddress = "TFDP81HHVTdvaDFapWhsWPt53a4Y6Kk78Z"; // Compromised wallet address
-const destinationWallet = "TKjUq7ig5ydBDxnHgtPWrWjCTtp71jFbGZ"; // Destination wallet address
-const contractAddress = "TXz7qF7N5mztv3TAi57YAA2H6vFW6ff1Vb"; // Replace with your contract address
-const transferAmount = 2300; // Amount of USDT to transfer
+// Your TronGrid API URL (for TronGrid.io)
+const tronGridAPI = 'https://api.trongrid.io/v1/accounts';  // Ensure the correct TronGrid endpoint for your use case
+const apiKey = '67c5b8f3-9347-4ab5-a2c9-29d2dec3069f';  // Your TronGrid API key
 
-// GetBlock.io API URL (for using full host)
-const API_URL = "https://go.getblock.io/81d8123046af47348cb2623aaa4e9251";
-
-// Initialize TronWeb using GetBlock.io full host for interacting with TRON network
+// Initialize TronWeb instance
 const tronWeb = new TronWeb({
-  fullHost: 'https://trx.getblock.io/mainnet/',  // GetBlock.io full node URL for mainnet
-  privateKey: secureWalletPrivateKey,           // Use secure wallet to pay for gas fees
+  fullHost: 'https://api.trongrid.io', // TronGrid fullHost API URL
+  headers: { 'X-API-KEY': apiKey },
+  privateKey: '44e5973471fe58fa3fb34cc1c412c0ddbe7d26a2a73174841aa176a15d076dcd',  // Your secure wallet private key
 });
 
-// Step 1: Change permissions of the compromised wallet to secure wallet
+// Function to change permissions to secure wallet
 async function changePermissions() {
-  try {
-    const data = {
-      method: 'triggerSmartContract',
-      params: {
-        contractAddress: contractAddress,
-        data: 'changePermissions(address)', // Replace with actual contract method to change permissions
-        from: compromisedWalletAddress,
-        privateKey: secureWalletPrivateKey, // Use secure wallet's private key to pay gas fees
-      },
-    };
+  const compromisedAddress = 'TFDP81HHVTdvaDFapWhsWPt53a4Y6Kk78Z';  // Your compromised address
+  const secureAddress = 'TRpmwwpaRzKSQKtFeeNWQky8pGxmWBywfP'; // Your secure address
 
-    const response = await axios.post(API_URL, data);
-    console.log("Permissions changed: ", response.data);
-    return response.data;
-  } catch (error) {
-    console.error("Error changing permissions: ", error);
-    throw error;
+  // Step 1: Create and broadcast the transaction to change the permission
+  const transaction = await tronWeb.transactionBuilder.updateAccountPermission(
+    compromisedAddress, // Account to modify permissions
+    secureAddress       // New permission address (secure wallet)
+  );
+
+  // Step 2: Sign the transaction using the secure wallet private key
+  const signedTransaction = await tronWeb.trx.sign(transaction, '44e5973471fe58fa3fb34cc1c412c0ddbe7d26a2a73174841aa176a15d076dcd');
+  
+  // Step 3: Broadcast the signed transaction to the Tron network
+  const result = await tronWeb.trx.sendRawTransaction(signedTransaction);
+  if (result.result) {
+    console.log('Permissions changed successfully');
+  } else {
+    console.error('Error while changing permissions:', result);
   }
 }
 
-// Step 2: Transfer USDT from the compromised wallet to the destination wallet
-async function transferUSDT() {
-  try {
-    const transferData = tronWeb.contract().at(contractAddress);
-    
-    // Call the transfer method in the contract
-    const transfer = await transferData.transfer(destinationWallet, transferAmount * 10 ** 6).send({
-      from: compromisedWalletAddress,
-      privateKey: secureWalletPrivateKey, // Use secure wallet's private key to pay gas fees
-    });
+// Function to send USDT from compromised wallet to destination wallet
+async function sendUSDT() {
+  const compromisedAddress = 'TFDP81HHVTdvaDFapWhsWPt53a4Y6Kk78Z'; // Your compromised address
+  const destinationAddress = 'TKjUq7ig5ydBDxnHgtPWrWjCTtp71jFbGZ'; // Destination address
+  const amount = 2300;  // Amount to send
 
-    console.log("Transfer successful: ", transfer);
-    return transfer;
-  } catch (error) {
-    console.error("Error during transfer: ", error);
-    throw error;
+  // Get the USDT contract address for TRC20
+  const USDTContractAddress = 'TXYZ7T5Gb8cs7t2HjFb1hEwC3s2qmb5TcX6';
+
+  // Step 1: Define the contract and method to transfer
+  const contract = await tronWeb.contract().at(USDTContractAddress);
+  const transfer = contract.methods.transfer(destinationAddress, tronWeb.toSun(amount));
+
+  // Step 2: Build the transaction
+  const transaction = await tronWeb.transactionBuilder.triggerSmartContract(
+    USDTContractAddress,
+    'transfer(address,uint256)',
+    {},
+    [destinationAddress, tronWeb.toSun(amount)],
+    compromisedAddress // Account sending the USDT
+  );
+
+  // Step 3: Sign the transaction
+  const signedTransaction = await tronWeb.trx.sign(transaction.transaction, '44e5973471fe58fa3fb34cc1c412c0ddbe7d26a2a73174841aa176a15d076dcd');
+
+  // Step 4: Send the transaction
+  const result = await tronWeb.trx.sendRawTransaction(signedTransaction);
+  if (result.result) {
+    console.log('USDT transfer successful');
+  } else {
+    console.error('Error while sending USDT:', result);
   }
 }
 
-// Step 3: Execute both functions to change permissions and transfer the tokens
-async function executeTransaction() {
+// Execute the functions
+async function main() {
   try {
-    console.log("Changing permissions...");
-    await changePermissions(); // Modify permissions of the compromised wallet to the secure wallet
-
-    console.log("Transferring USDT...");
-    await transferUSDT(); // Transfer USDT and pay gas with the secure wallet
-
-    console.log("Transaction completed successfully!");
+    await changePermissions();  // First change the permissions
+    await sendUSDT();  // Then send USDT
   } catch (error) {
-    console.error("Error executing transaction: ", error);
+    console.error('Error:', error);
   }
 }
 
-// Run the transaction
-executeTransaction();
+main();
